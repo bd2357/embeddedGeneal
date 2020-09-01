@@ -1,12 +1,12 @@
 require 'ceedling/plugin'
 require 'ceedling/constants'
-require 'pp'
 
 class JunitTestsReport < Plugin
 
   def setup
     @results_list = {}
     @test_counter = 0
+    @time_result = []
   end
 
   def post_test_fixture_execute(arg_hash)
@@ -15,14 +15,18 @@ class JunitTestsReport < Plugin
     @results_list[context] = [] if (@results_list[context].nil?)
 
     @results_list[context] << arg_hash[:result_file]
+    @time_result << arg_hash[:shell_result][:time]
+
   end
-  
+
   def post_build
     @results_list.each_key do |context|
       results = @ceedling[:plugin_reportinator].assemble_test_results(@results_list[context])
 
-      file_path = File.join( PROJECT_BUILD_ARTIFACTS_ROOT, context.to_s, 'report.xml' )
-  
+      artifact_filename = @ceedling[:configurator].project_config_hash[:junit_tests_report_artifact_filename] || 'report.xml'
+      artifact_fullpath = @ceedling[:configurator].project_config_hash[:junit_tests_report_path] || File.join(PROJECT_BUILD_ARTIFACTS_ROOT, context.to_s)
+      file_path = File.join(artifact_fullpath, artifact_filename)
+
       @ceedling[:file_wrapper].open( file_path, 'w' ) do |f|
         @testsuite_counter = 0
         @testcase_counter = 0
@@ -34,18 +38,19 @@ class JunitTestsReport < Plugin
       end
     end
   end
-  
+
   private
 
   def write_header( results, stream )
+    results[:counts][:time] = @time_result.reduce(0, :+)
     stream.puts '<?xml version="1.0" encoding="utf-8" ?>'
-    stream.puts('<testsuites tests="%<total>d" failures="%<failed>d" skipped="%<ignored>d">' % results[:counts])
+    stream.puts('<testsuites tests="%<total>d" failures="%<failed>d" skipped="%<ignored>d" time="%<time>f">' % results[:counts])
   end
-  
+
   def write_footer( stream )
     stream.puts '</testsuites>'
   end
-  
+
   def reorganise_results( results )
     # Reorganise the output by test suite instead of by result
     suites = Hash.new{ |h,k| h[k] = {collection: [], total: 0, success: 0, failed: 0, ignored: 0, stdout: []} }
@@ -79,7 +84,8 @@ class JunitTestsReport < Plugin
   end
 
   def write_suite( suite, stream )
-    stream.puts('  <testsuite name="%<name>s" tests="%<total>d" failures="%<failed>d" skipped="%<ignored>d">' % suite)
+    suite[:time] = @time_result.shift
+    stream.puts('  <testsuite name="%<name>s" tests="%<total>d" failures="%<failed>d" skipped="%<ignored>d" time="%<time>f">' % suite)
 
     suite[:collection].each do |test|
       write_test( test, stream )
@@ -87,7 +93,14 @@ class JunitTestsReport < Plugin
 
     unless suite[:stdout].empty?
       stream.puts('    <system-out>')
-      suite[:stdout].each{|line| stream.puts line }
+      suite[:stdout].each do |line|
+        line.gsub!(/&/, '&amp;')
+        line.gsub!(/</, '&lt;')
+        line.gsub!(/>/, '&gt;')
+        line.gsub!(/"/, '&quot;')
+        line.gsub!(/'/, '&apos;')
+        stream.puts(line)
+      end
       stream.puts('    </system-out>')
     end
 
@@ -95,11 +108,17 @@ class JunitTestsReport < Plugin
   end
 
   def write_test( test, stream )
+    test[:test].gsub!(/&/, '&amp;')
+    test[:test].gsub!(/</, '&lt;')
+    test[:test].gsub!(/>/, '&gt;')
+    test[:test].gsub!(/"/, '&quot;')
+    test[:test].gsub!(/'/, '&apos;')
+
     case test[:result]
     when :success
-      stream.puts('    <testcase name="%<test>s" />' % test)
+      stream.puts('    <testcase name="%<test>s" time="%<unity_test_time>f"/>' % test)
     when :failed
-      stream.puts('    <testcase name="%<test>s">' % test)
+      stream.puts('    <testcase name="%<test>s" time="%<unity_test_time>f">' % test)
       if test[:message].empty?
         stream.puts('      <failure />')
       else
@@ -107,7 +126,7 @@ class JunitTestsReport < Plugin
       end
       stream.puts('    </testcase>')
     when :ignored
-      stream.puts('    <testcase name="%<test>s">' % test)
+      stream.puts('    <testcase name="%<test>s" time="%<unity_test_time>f">' % test)
       stream.puts('      <skipped />')
       stream.puts('    </testcase>')
     end

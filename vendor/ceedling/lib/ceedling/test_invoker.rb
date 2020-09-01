@@ -22,44 +22,32 @@ class TestInvoker
     @tests   = []
     @mocks   = []
   end
-  
-  def get_test_definition_str(test)
-    return "-D" + File.basename(test, File.extname(test)).upcase.sub(/@.*$/, "")
-  end
 
-  def get_tools_compilers
-    tools_compilers = Hash.new
-    tools_compilers["for unit test"] = TOOLS_TEST_COMPILER if defined? TOOLS_TEST_COMPILER
-    tools_compilers["for gcov"]      = TOOLS_GCOV_COMPILER if defined? TOOLS_GCOV_COMPILER
-    return tools_compilers
-  end
 
-  def add_test_definition(test)
-    test_definition_str = get_test_definition_str(test)
-    get_tools_compilers.each do |tools_compiler_key, tools_compiler_value|
-      tools_compiler_value[:arguments].push("-D#{File.basename(test, ".*").strip.upcase.sub(/@.*$/, "")}")
-      @streaminator.stdout_puts("Add the definition value in the build option #{tools_compiler_value[:arguments][-1]} #{tools_compiler_key}", Verbosity::OBNOXIOUS)
+  # Convert libraries configuration form YAML configuration
+  # into a string that can be given to the compiler.
+  def convert_libraries_to_arguments()
+    args = ((@configurator.project_config_hash[:libraries_test] || []) + ((defined? LIBRARIES_SYSTEM) ? LIBRARIES_SYSTEM : [])).flatten
+    if (defined? LIBRARIES_FLAG)
+      args.map! {|v| LIBRARIES_FLAG.gsub(/\$\{1\}/, v) }
     end
+    return args
   end
 
-  def delete_test_definition(test)
-    test_definition_str = get_test_definition_str(test)
-    get_tools_compilers.each do |tools_compiler_key, tools_compiler_value|
-      num_options = tools_compiler_value[:arguments].size
-      @streaminator.stdout_puts("Delete the definition value in the build option #{tools_compiler_value[:arguments][-1]} #{tools_compiler_key}", Verbosity::OBNOXIOUS)
-      tools_compiler_value[:arguments].delete_if{|i| i == test_definition_str}
-      if num_options > tools_compiler_value[:arguments].size + 1
-        @streaminator.stderr_puts("WARNING: duplicated test definition.")
-      end
+  def get_library_paths_to_arguments()
+    paths = (defined? PATHS_LIBRARIES) ? (PATHS_LIBRARIES || []).clone : []
+    if (defined? LIBRARIES_PATH_FLAG)
+      paths.map! {|v| LIBRARIES_PATH_FLAG.gsub(/\$\{1\}/, v) }
     end
+    return paths
   end
 
-  def setup_and_invoke(tests, context=TEST_SYM, options={:force_run => true})
-  
+  def setup_and_invoke(tests, context=TEST_SYM, options={:force_run => true, :build_only => false})
+
     @tests = tests
 
     @project_config_manager.process_test_config_change
-  
+
     @tests.each do |test|
       # announce beginning of test run
       header = "Test '#{File.basename(test)}'"
@@ -67,27 +55,50 @@ class TestInvoker
 
       begin
         @plugin_manager.pre_test( test )
-        
+        test_name ="#{File.basename(test)}".chomp('.c')
+        def_test_key="defines_#{test_name.downcase}"
+
+        if @configurator.project_config_hash.has_key?(def_test_key.to_sym) || @configurator.defines_use_test_definition
+          defs_bkp = Array.new(COLLECTION_DEFINES_TEST_AND_VENDOR)
+          tst_defs_cfg = Array.new(defs_bkp)
+          if @configurator.project_config_hash.has_key?(def_test_key.to_sym)
+            tst_defs_cfg.replace(@configurator.project_config_hash[def_test_key.to_sym])
+          end
+          if @configurator.defines_use_test_definition
+            tst_defs_cfg << File.basename(test, ".*").strip.upcase.sub(/@.*$/, "")
+          end
+          COLLECTION_DEFINES_TEST_AND_VENDOR.replace(tst_defs_cfg)
+        end
+
+        # redefine the project out path and preprocessor defines
+        if @configurator.project_config_hash.has_key?(def_test_key.to_sym)
+          @streaminator.stdout_puts("Updating test definitions for #{test_name}", Verbosity::NORMAL)
+          orig_path = @configurator.project_test_build_output_path
+          @configurator.project_config_hash[:project_test_build_output_path] = File.join(@configurator.project_test_build_output_path, test_name)
+          @file_wrapper.mkdir(@configurator.project_test_build_output_path)
+        end
+
         # collect up test fixture pieces & parts
         runner       = @file_path_utils.form_runner_filepath_from_test( test )
         mock_list    = @preprocessinator.preprocess_test_and_invoke_test_mocks( test )
         sources      = @test_invoker_helper.extract_sources( test )
         extras       = @configurator.collection_test_fixture_extra_link_objects
         core         = [test] + mock_list + sources
-        objects      = @file_path_utils.form_test_build_objects_filelist( [runner] + core + extras )
+        objects      = @file_path_utils.form_test_build_objects_filelist( [runner] + core + extras ).uniq
         results_pass = @file_path_utils.form_pass_results_filepath( test )
         results_fail = @file_path_utils.form_fail_results_filepath( test )
-        
-        # add the definition value in the build option for the unit test
-        if @configurator.defines_use_test_definition
-          add_test_definition(test)
-        end
+
+        # identify all the objects shall not be linked and then remove them from objects list.
+        no_link_objects = @file_path_utils.form_test_build_objects_filelist(@preprocessinator.preprocess_shallow_source_includes( test ))
+        objects = objects.uniq - no_link_objects
+
+        @project_config_manager.process_test_defines_change(@project_config_manager.filter_internal_sources(sources))
 
         # clean results files so we have a missing file with which to kick off rake's dependency rules
         @test_invoker_helper.clean_results( {:pass => results_pass, :fail => results_fail}, options )
 
         # load up auxiliary dependencies so deep changes cause rebuilding appropriately
-        @test_invoker_helper.process_deep_dependencies( core ) do |dependencies_list| 
+        @test_invoker_helper.process_deep_dependencies( core ) do |dependencies_list|
           @dependinator.load_test_object_deep_dependencies( dependencies_list )
         end
 
@@ -98,39 +109,55 @@ class TestInvoker
         @dependinator.enhance_test_build_object_dependencies( objects )
 
         # associate object files with executable
-        @dependinator.setup_test_executable_dependencies( test, objects )
+        @dependinator.enhance_test_executable_dependencies( test, objects )
 
-        # 3, 2, 1... launch
-        @task_invoker.invoke_test_results( results_pass )        
+        # build test objects
+        @task_invoker.invoke_test_objects( objects )
+
+        # if the option build_only has been specified, build only the executable
+        # but don't run the test
+        if (options[:build_only])
+          executable = @file_path_utils.form_test_executable_filepath( test )
+          @task_invoker.invoke_test_executable( executable )
+        else
+          # 3, 2, 1... launch
+          @task_invoker.invoke_test_results( results_pass )
+        end
       rescue => e
         @build_invoker_utils.process_exception( e, context )
       ensure
-        # delete the definition value in the build option for the unit test
-        if @configurator.defines_use_test_definition
-          delete_test_definition(test)
-        end
         @plugin_manager.post_test( test )
+        # restore the project test defines
+        if @configurator.project_config_hash.has_key?(def_test_key.to_sym) || @configurator.defines_use_test_definition
+          COLLECTION_DEFINES_TEST_AND_VENDOR.replace(defs_bkp)
+          if @configurator.project_config_hash.has_key?(def_test_key.to_sym)
+            @configurator.project_config_hash[:project_test_build_output_path] = orig_path
+            @streaminator.stdout_puts("Restored defines and build path to standard", Verbosity::NORMAL)
+          end
+        end
       end
-      
+
       # store away what's been processed
       @mocks.concat( mock_list )
       @sources.concat( sources )
+
+      @task_invoker.first_run = false
     end
 
     # post-process collected mock list
     @mocks.uniq!
-    
+
     # post-process collected sources list
     @sources.uniq!
   end
 
 
   def refresh_deep_dependencies
-    @file_wrapper.rm_f( 
-      @file_wrapper.directory_listing( 
+    @file_wrapper.rm_f(
+      @file_wrapper.directory_listing(
         File.join( @configurator.project_test_dependencies_path, '*' + @configurator.extension_dependencies ) ) )
 
-    @test_invoker_helper.process_deep_dependencies( 
+    @test_invoker_helper.process_deep_dependencies(
       @configurator.collection_all_tests + @configurator.collection_all_source )
   end
 

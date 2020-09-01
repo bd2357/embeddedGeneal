@@ -3,7 +3,7 @@ class Preprocessinator
 
   attr_reader :preprocess_file_proc
   
-  constructor :preprocessinator_helper, :preprocessinator_includes_handler, :preprocessinator_file_handler, :task_invoker, :file_path_utils, :yaml_wrapper
+  constructor :preprocessinator_helper, :preprocessinator_includes_handler, :preprocessinator_file_handler, :task_invoker, :file_path_utils, :yaml_wrapper, :project_config_manager
 
 
   def setup
@@ -12,11 +12,16 @@ class Preprocessinator
     @preprocess_file_proc     = Proc.new { |filepath| self.preprocess_file(filepath) }
   end
 
+  def preprocess_shallow_source_includes(test)
+    @preprocessinator_helper.preprocess_source_includes(test)
+  end
 
   def preprocess_test_and_invoke_test_mocks(test)
     @preprocessinator_helper.preprocess_includes(test, @preprocess_includes_proc)
 
     mocks_list = @preprocessinator_helper.assemble_mocks_list(test)
+
+    @project_config_manager.process_test_defines_change(mocks_list)
 
     @preprocessinator_helper.preprocess_mockable_headers(mocks_list, @preprocess_file_proc)
 
@@ -28,8 +33,7 @@ class Preprocessinator
   end
 
   def preprocess_shallow_includes(filepath)
-    dependencies_rule = @preprocessinator_includes_handler.form_shallow_dependencies_rule(filepath)
-    includes          = @preprocessinator_includes_handler.extract_shallow_includes(dependencies_rule)
+    includes = @preprocessinator_includes_handler.extract_includes(filepath)
 
     @preprocessinator_includes_handler.write_shallow_includes_list(
       @file_path_utils.form_preprocessed_includes_list_filepath(filepath), includes)

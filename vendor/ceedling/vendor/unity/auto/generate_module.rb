@@ -14,6 +14,7 @@ require 'pathname'
 
 # TEMPLATE_TST
 TEMPLATE_TST ||= '#include "unity.h"
+
 %2$s#include "%1$s.h"
 
 void setUp(void)
@@ -24,7 +25,7 @@ void tearDown(void)
 {
 }
 
-void test_%1$s_NeedToImplement(void)
+void test_%4$s_NeedToImplement(void)
 {
     TEST_IGNORE_MESSAGE("Need to Implement %1$s");
 }
@@ -35,18 +36,16 @@ TEMPLATE_SRC ||= '%2$s#include "%1$s.h"
 '.freeze
 
 # TEMPLATE_INC
-TEMPLATE_INC ||= '#ifndef _%3$s_H
-#define _%3$s_H
+TEMPLATE_INC ||= '#ifndef %3$s_H
+#define %3$s_H
 %2$s
 
-#endif // _%3$s_H
+#endif // %3$s_H
 '.freeze
 
 class UnityModuleGenerator
   ############################
   def initialize(options = nil)
-    here = File.expand_path(File.dirname(__FILE__)) + '/'
-
     @options = UnityModuleGenerator.default_options
     case options
     when NilClass then @options
@@ -56,9 +55,9 @@ class UnityModuleGenerator
     end
 
     # Create default file paths if none were provided
-    @options[:path_src] = here + '../src/'    if @options[:path_src].nil?
-    @options[:path_inc] = @options[:path_src] if @options[:path_inc].nil?
-    @options[:path_tst] = here + '../test/'   if @options[:path_tst].nil?
+    @options[:path_src] = "#{__dir__}/../src/"   if @options[:path_src].nil?
+    @options[:path_inc] = @options[:path_src]    if @options[:path_inc].nil?
+    @options[:path_tst] = "#{__dir__}/../test/"  if @options[:path_tst].nil?
     @options[:path_src] += '/'                unless @options[:path_src][-1] == 47
     @options[:path_inc] += '/'                unless @options[:path_inc][-1] == 47
     @options[:path_tst] += '/'                unless @options[:path_tst][-1] == 47
@@ -165,23 +164,25 @@ class UnityModuleGenerator
   end
 
   ############################
-  def create_filename(part1, part2 = '')
-    if part2.empty?
-      case (@options[:naming])
-      when 'bumpy' then part1
-      when 'camel' then part1
-      when 'snake' then part1.downcase
-      when 'caps'  then part1.upcase
-      else              part1
-      end
+  def neutralize_filename(name, start_cap=true)
+    return name if name.empty?
+    name = name.split(/(?:\s+|_|(?=[A-Z][a-z]))|(?<=[a-z])(?=[A-Z])/).map{|v|v.capitalize}.join('_')
+    if start_cap
+      return name
     else
-      case (@options[:naming])
-      when 'bumpy' then part1 + part2
-      when 'camel' then part1 + part2
-      when 'snake' then part1.downcase + '_' + part2.downcase
-      when 'caps'  then part1.upcase + '_' + part2.upcase
-      else              part1 + '_' + part2
-      end
+      return name[0].downcase + name[1..-1]
+    end
+  end
+
+  ############################
+  def create_filename(part1, part2 = '')
+    name = part2.empty? ? part1 : part1 + '_' + part2
+    case (@options[:naming])
+    when 'bumpy' then neutralize_filename(name,false).gsub('_','')
+    when 'camel' then neutralize_filename(name).gsub('_','')
+    when 'snake' then neutralize_filename(name).downcase
+    when 'caps'  then neutralize_filename(name).upcase
+    else              name
     end
   end
 
@@ -209,7 +210,8 @@ class UnityModuleGenerator
         f.write("#{file[:boilerplate]}\n" % [file[:name]]) unless file[:boilerplate].nil?
         f.write(file[:template] % [file[:name],
                                    file[:includes].map { |ff| "#include \"#{ff}\"\n" }.join,
-                                   file[:name].upcase])
+                                   file[:name].upcase.gsub(/-/, '_'),
+                                   file[:name].gsub(/-/, '_')])
       end
       if @options[:update_svn]
         `svn add \"#{file[:path]}\"`
@@ -265,6 +267,7 @@ if $0 == __FILE__
     when /^-y\"?(.+)\"?/  then options = UnityModuleGenerator.grab_config(Regexp.last_match(1))
     when /^(\w+)/
       raise "ERROR: You can't have more than one Module name specified!" unless module_name.nil?
+
       module_name = arg
     when /^-(h|-help)/
       ARGV = [].freeze
@@ -299,6 +302,7 @@ if $0 == __FILE__
   end
 
   raise 'ERROR: You must have a Module name specified! (use option -h for help)' if module_name.nil?
+
   if destroy
     UnityModuleGenerator.new(options).destroy(module_name)
   else

@@ -89,12 +89,14 @@ class ConfiguratorBuilder
       [:project_build_tests_root,      project_build_tests_root,     true ],
       [:project_build_release_root,    project_build_release_root,   in_hash[:project_release_build] ],
 
-      [:project_test_artifacts_path,     File.join(project_build_artifacts_root, TESTS_BASE_PATH), true ],
-      [:project_test_runners_path,       File.join(project_build_tests_root, 'runners'),           true ],
-      [:project_test_results_path,       File.join(project_build_tests_root, 'results'),           true ],
-      [:project_test_build_output_path,  File.join(project_build_tests_root, 'out'),               true ],
-      [:project_test_build_cache_path,   File.join(project_build_tests_root, 'cache'),             true ],
-      [:project_test_dependencies_path,  File.join(project_build_tests_root, 'dependencies'),      true ],
+      [:project_test_artifacts_path,            File.join(project_build_artifacts_root, TESTS_BASE_PATH), true ],
+      [:project_test_runners_path,              File.join(project_build_tests_root, 'runners'),           true ],
+      [:project_test_results_path,              File.join(project_build_tests_root, 'results'),           true ],
+      [:project_test_build_output_path,         File.join(project_build_tests_root, 'out'),               true ],
+      [:project_test_build_output_asm_path,     File.join(project_build_tests_root, 'out', 'asm'),        true ],
+      [:project_test_build_output_c_path,       File.join(project_build_tests_root, 'out', 'c'),          true ],
+      [:project_test_build_cache_path,          File.join(project_build_tests_root, 'cache'),             true ],
+      [:project_test_dependencies_path,         File.join(project_build_tests_root, 'dependencies'),      true ],
 
       [:project_release_artifacts_path,         File.join(project_build_artifacts_root, RELEASE_BASE_PATH), in_hash[:project_release_build] ],
       [:project_release_build_cache_path,       File.join(project_build_release_root, 'cache'),             in_hash[:project_release_build] ],
@@ -248,8 +250,8 @@ class ConfiguratorBuilder
   def collect_test_support_source_include_vendor_paths(in_hash)
     return {
       :collection_paths_test_support_source_include_vendor =>
-        in_hash[:collection_paths_test_support_source_include] +
-        get_vendor_paths(in_hash)
+        get_vendor_paths(in_hash) +
+        in_hash[:collection_paths_test_support_source_include]
       }
   end
 
@@ -270,12 +272,19 @@ class ConfiguratorBuilder
   def collect_assembly(in_hash)
     all_assembly = @file_wrapper.instantiate_file_list
 
-    return {:collection_all_assembly => all_assembly} if (not in_hash[:release_build_use_assembly])
+    return {:collection_all_assembly => all_assembly} if ((not in_hash[:release_build_use_assembly]) && (not in_hash[:test_build_use_assembly]))
 
+    # Sprinkle in all assembly files we can find in the source folders
     in_hash[:collection_paths_source].each do |path|
       all_assembly.include( File.join(path, "*#{in_hash[:extension_assembly]}") )
     end
 
+    # Also add all assembly files we can find in the support folders
+    in_hash[:collection_paths_support].each do |path|
+      all_assembly.include( File.join(path, "*#{in_hash[:extension_assembly]}") )
+    end
+
+    # Also add files that we are explicitly adding via :files:assembly: section
     @file_system_utils.revise_file_list( all_assembly, in_hash[:files_assembly] )
 
     return {:collection_all_assembly => all_assembly}
@@ -361,6 +370,7 @@ class ConfiguratorBuilder
         all_input.include( path )
       else
         all_input.include( File.join(path, "*#{in_hash[:extension_source]}") )
+        all_input.include( File.join(path, "*#{in_hash[:extension_assembly]}") ) if (defined?(TEST_BUILD_USE_ASSEMBLY) && TEST_BUILD_USE_ASSEMBLY)
       end
     end
 
@@ -408,28 +418,33 @@ class ConfiguratorBuilder
     #  Note: Symbols passed to compiler at command line can change Unity and CException behavior / configuration;
     #    we also handle those dependencies elsewhere in compilation dependencies
 
-    objects = [UNITY_C_FILE]
+    sources = [UNITY_C_FILE]
 
-    in_hash[:files_support].each { |file| objects << File.basename(file) }
+    in_hash[:files_support].each { |file| sources << file }
 
     # we don't include paths here because use of plugins or mixing different compilers may require different build paths
-    objects << CEXCEPTION_C_FILE if (in_hash[:project_use_exceptions])
-    objects << CMOCK_C_FILE      if (in_hash[:project_use_mocks])
+    sources << CEXCEPTION_C_FILE if (in_hash[:project_use_exceptions])
+    sources << CMOCK_C_FILE      if (in_hash[:project_use_mocks])
 
     # if we're using mocks & a unity helper is defined & that unity helper includes a source file component (not only a header of macros),
     # then link in the unity_helper object file too
     if ( in_hash[:project_use_mocks] and in_hash[:cmock_unity_helper] )
       in_hash[:cmock_unity_helper].each do |helper|
         if @file_wrapper.exist?(helper.ext(in_hash[:extension_source]))
-          objects << File.basename(helper)
+          sources << helper
         end
       end
     end
 
+    # create object files from all the sources
+    objects = sources.map { |file| File.basename(file) }
+
     # no build paths here so plugins can remap if necessary (i.e. path mapping happens at runtime)
     objects.map! { |object| object.ext(in_hash[:extension_object]) }
 
-    return { :collection_test_fixture_extra_link_objects => objects }
+    return { :collection_all_support => sources,
+             :collection_test_fixture_extra_link_objects => objects
+           }
   end
 
 

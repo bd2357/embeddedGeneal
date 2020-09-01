@@ -10,10 +10,11 @@ class Gcov < Plugin
 
     @config = {
       project_test_build_output_path: GCOV_BUILD_OUTPUT_PATH,
+      project_test_build_output_c_path: GCOV_BUILD_OUTPUT_PATH,
       project_test_results_path: GCOV_RESULTS_PATH,
       project_test_dependencies_path: GCOV_DEPENDENCIES_PATH,
       defines_test: DEFINES_TEST + ['CODE_COVERAGE'],
-      collection_defines_test_and_vendor: COLLECTION_DEFINES_TEST_AND_VENDOR + ['CODE_COVERAGE']
+      gcov_html_report_filter: GCOV_FILTER_EXCLUDE
     }
 
     @plugin_root = File.expand_path(File.join(File.dirname(__FILE__), '..'))
@@ -21,13 +22,15 @@ class Gcov < Plugin
   end
 
   def generate_coverage_object_file(source, object)
+    lib_args = @ceedling[:test_invoker].convert_libraries_to_arguments()
     compile_command =
       @ceedling[:tool_executor].build_command_line(
         TOOLS_GCOV_COMPILER,
         @ceedling[:flaginator].flag_down(OPERATION_COMPILE_SYM, GCOV_SYM, source),
         source,
         object,
-        @ceedling[:file_path_utils].form_test_build_list_filepath(object)
+        @ceedling[:file_path_utils].form_test_build_list_filepath(object),
+        lib_args
       )
     @ceedling[:streaminator].stdout_puts("Compiling #{File.basename(source)} with coverage...")
     @ceedling[:tool_executor].exec(compile_command[:line], compile_command[:options])
@@ -79,10 +82,7 @@ class Gcov < Plugin
     banner = @ceedling[:plugin_reportinator].generate_banner "#{GCOV_ROOT_NAME.upcase}: CODE COVERAGE SUMMARY"
     @ceedling[:streaminator].stdout_puts "\n" + banner
 
-    coverage_sources = sources.clone
-    coverage_sources.delete_if { |item| item =~ /#{CMOCK_MOCK_PREFIX}.+#{EXTENSION_SOURCE}$/ }
-    coverage_sources.delete_if { |item| item =~ /#{GCOV_IGNORE_SOURCES.join('|')}#{EXTENSION_SOURCE}$/ }
-
+    coverage_sources = @ceedling[:project_config_manager].filter_internal_sources(sources)
     coverage_sources.each do |source|
       basename         = File.basename(source)
       command          = @ceedling[:tool_executor].build_command_line(TOOLS_GCOV_REPORT, [], [basename])
@@ -92,6 +92,35 @@ class Gcov < Plugin
       if coverage_results.strip =~ /(File\s+'#{Regexp.escape(source)}'.+$)/m
         report = Regexp.last_match(1).lines.to_a[1..-1].map { |line| basename + ' ' + line }.join('')
         @ceedling[:streaminator].stdout_puts(report + "\n\n")
+      end
+    end
+
+    ignore_file_list = @ceedling[:configurator].project_config_hash[:gcov_uncovered_ignore_list] || []
+    ignore_uncovered_list = []
+    ignore_file_list.each do |source|
+      ignore_uncovered_list.push(Dir.glob(source).reject{|f| File.directory?(f)})
+    end
+    ignore_uncovered_list.flatten!
+
+    found_uncovered = false
+    COLLECTION_ALL_SOURCE.each do |source|
+      unless coverage_sources.include?(source)
+        v = Verbosity::DEBUG
+        msg = "Could not find coverage results for " + source
+        if ignore_uncovered_list.include?(source)
+          msg += " [IGNORED]"
+        else
+          found_uncovered = true
+          v = Verbosity::NORMAL
+        end
+        msg += "\n"
+        @ceedling[:streaminator].stdout_puts(msg, v)
+      end
+    end
+    if found_uncovered
+      if @ceedling[:configurator].project_config_hash[:gcov_abort_on_uncovered]
+        @ceedling[:streaminator].stderr_puts("There were files with no coverage results: aborting.\n")
+        exit(-1)
       end
     end
   end

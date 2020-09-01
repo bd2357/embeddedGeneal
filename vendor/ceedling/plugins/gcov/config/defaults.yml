@@ -11,6 +11,7 @@
       - -I"$": COLLECTION_PATHS_TEST_TOOLCHAIN_INCLUDE
       - -D$: COLLECTION_DEFINES_TEST_AND_VENDOR
       - -DGCOV_COMPILER
+      - -DCODE_COVERAGE
       - -c "${1}"
       - -o "${2}"
   :gcov_linker:
@@ -20,6 +21,8 @@
       - -ftest-coverage
       - ${1}
       - -o ${2}
+      - ${4}
+      - ${5}
   :gcov_fixture:
     :executable: ${1}
   :gcov_report:
@@ -30,37 +33,19 @@
       - -b
       - -o "$": GCOV_BUILD_OUTPUT_PATH
       - "\"${1}\""
-  :gcov_post_report:
+  :gcov_gcov_post_report:
+    :executable: gcov
+    :optional: TRUE
+    :arguments:
+      - ${1}
+  :gcov_gcovr_post_report:
     :executable: gcovr
     :optional: TRUE
     :arguments:
-        - -p
-        - -b
-        - -e "'^vendor.*|^build.*|^test.*|^lib.*'"
-        - --html
-        - -r .
-        - -o GcovCoverageResults.html
-  :gcov_post_report_basic:
-    :executable: gcovr
+      - ${1}
+  :gcov_report_generator_post_report:
+    :executable: reportgenerator
     :optional: TRUE
     :arguments:
-        - -p
-        - -b
-        - -e "'^vendor.*|^build.*|^test.*|^lib.*'"
-        - --html
-        - -r .
-        - -o  "$": GCOV_ARTIFACTS_FILE
-  :gcov_post_report_advanced:
-    :executable: gcovr
-    :optional: TRUE
-    :arguments:
-        - -p
-        - -b
-        - -e "'^vendor.*|^build.*|^test.*|^lib.*'"
-        - --html
-        - --html-details
-        - -r .
-        - -o  "$": GCOV_ARTIFACTS_FILE
-
-
+      - ${1}
 ...

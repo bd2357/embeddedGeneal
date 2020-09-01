@@ -63,7 +63,7 @@ DEFAULT_CEEDLING_MAIN_PROJECT_FILE = 'project.yml' unless defined?(DEFAULT_CEEDL
 DEFAULT_CEEDLING_USER_PROJECT_FILE = 'user.yml'    unless defined?(DEFAULT_CEEDLING_USER_PROJECT_FILE) # supplemental user config file
 
 INPUT_CONFIGURATION_CACHE_FILE     = 'input.yml'   unless defined?(INPUT_CONFIGURATION_CACHE_FILE)     # input configuration file dump
-
+DEFINES_DEPENDENCY_CACHE_FILE      = 'defines_dependency.yml' unless defined?(DEFINES_DEPENDENCY_CACHE_FILE) # preprocessor definitions for files
 
 TEST_ROOT_NAME    = 'test'                unless defined?(TEST_ROOT_NAME)
 TEST_TASK_ROOT    = TEST_ROOT_NAME + ':'  unless defined?(TEST_TASK_ROOT)
@@ -95,3 +95,5 @@ NULL_FILE_PATH = '/dev/null'
 
 TESTS_BASE_PATH   = TEST_ROOT_NAME
 RELEASE_BASE_PATH = RELEASE_ROOT_NAME
+
+VENDORS_FILES = %w(unity UnityHelper cmock cexception).freeze

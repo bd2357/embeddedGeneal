@@ -64,6 +64,8 @@ class Configurator
   end
 
 
+  # The default values defined in defaults.rb (eg. DEFAULT_TOOLS_TEST) are populated
+  # into @param config
   def populate_defaults(config)
     new_config = DEFAULT_CEEDLING_CONFIG.deep_clone
     new_config.deep_merge!(config)
@@ -173,15 +175,19 @@ class Configurator
       FilePathUtils::standardize(path)
     end
 
+    config[:plugins][:load_paths] << FilePathUtils::standardize(Ceedling.load_path)
+    config[:plugins][:load_paths].uniq!
+
     paths_hash = @configurator_plugins.add_load_paths(config)
 
-    @rake_plugins   = @configurator_plugins.find_rake_plugins(config)
-    @script_plugins = @configurator_plugins.find_script_plugins(config)
-    config_plugins  = @configurator_plugins.find_config_plugins(config)
-    plugin_defaults = @configurator_plugins.find_plugin_defaults(config)
+    @rake_plugins   = @configurator_plugins.find_rake_plugins(config, paths_hash)
+    @script_plugins = @configurator_plugins.find_script_plugins(config, paths_hash)
+    config_plugins  = @configurator_plugins.find_config_plugins(config, paths_hash)
+    plugin_defaults = @configurator_plugins.find_plugin_defaults(config, paths_hash)
 
     config_plugins.each do |plugin|
-      config.deep_merge!( @yaml_wrapper.load(plugin) )
+      plugin_config = @yaml_wrapper.load(plugin)
+      config.deep_merge(plugin_config)
     end
 
     plugin_defaults.each do |defaults|
@@ -197,10 +203,19 @@ class Configurator
 
   def merge_imports(config)
     if config[:import]
-      until config[:import].empty?
-        path = config[:import].shift
-        path = @system_wrapper.module_eval(path) if (path =~ RUBY_STRING_REPLACEMENT_PATTERN)
-        config.deep_merge!(@yaml_wrapper.load(path))
+      if config[:import].is_a? Array
+        until config[:import].empty?
+          path = config[:import].shift
+          path = @system_wrapper.module_eval(path) if (path =~ RUBY_STRING_REPLACEMENT_PATTERN)
+          config.deep_merge!(@yaml_wrapper.load(path))
+        end
+      else
+        config[:import].each_value do |path|
+          if !path.nil?
+            path = @system_wrapper.module_eval(path) if (path =~ RUBY_STRING_REPLACEMENT_PATTERN)
+            config.deep_merge!(@yaml_wrapper.load(path))
+          end
+        end
       end
     end
     config.delete(:import)
@@ -328,7 +343,6 @@ class Configurator
 
   def insert_rake_plugins(plugins)
     plugins.each do |plugin|
-      # TODO needs a duplicate guard
       @project_config_hash[:project_rakefile_component_files] << plugin
     end
   end
@@ -344,6 +358,10 @@ class Configurator
   end
 
   def eval_path_list( paths )
+    if paths.kind_of?(Array)
+      paths = Array.new(paths)
+    end
+
     paths.flatten.each do |path|
       path.replace( @system_wrapper.module_eval( path ) ) if (path =~ RUBY_STRING_REPLACEMENT_PATTERN)
     end

@@ -4,37 +4,47 @@ require 'ceedling/file_path_utils'
 
 #this should be defined already, but not always during system specs
 CEEDLING_VENDOR = File.expand_path(File.dirname(__FILE__) + '/../../vendor') unless defined? CEEDLING_VENDOR
-CEEDLING_PLUGINS = [File.expand_path(File.dirname(__FILE__) + '/../../plugins')] unless defined? CEEDLING_PLUGINS
+CEEDLING_PLUGINS = [] unless defined? CEEDLING_PLUGINS
 
 DEFAULT_TEST_COMPILER_TOOL = {
-  :executable => FilePathUtils.os_executable_ext('gcc').freeze,
+  :executable => ENV['CC'].nil? ? FilePathUtils.os_executable_ext('gcc').freeze : ENV['CC'].split[0],
   :name => 'default_test_compiler'.freeze,
   :stderr_redirect => StdErrRedirect::NONE.freeze,
   :background_exec => BackgroundExec::NONE.freeze,
   :optional => false.freeze,
   :arguments => [
+    ENV['CC'].nil? ? "" : ENV['CC'].split[1..-1],
+    ENV['CPPFLAGS'].nil? ? "" : ENV['CPPFLAGS'].split,
     {"-I\"$\"" => 'COLLECTION_PATHS_TEST_SUPPORT_SOURCE_INCLUDE_VENDOR'}.freeze,
     {"-I\"$\"" => 'COLLECTION_PATHS_TEST_TOOLCHAIN_INCLUDE'}.freeze,
     {"-D$" => 'COLLECTION_DEFINES_TEST_AND_VENDOR'}.freeze,
     "-DGNU_COMPILER".freeze,
     "-g".freeze,
+    ENV['CFLAGS'].nil? ? "" : ENV['CFLAGS'].split,
     "-c \"${1}\"".freeze,
     "-o \"${2}\"".freeze,
     # gcc's list file output options are complex; no use of ${3} parameter in default config
+    "-MMD".freeze,
+    "-MF \"${4}\"".freeze,
     ].freeze
   }
 
 DEFAULT_TEST_LINKER_TOOL = {
-  :executable => FilePathUtils.os_executable_ext('gcc').freeze,
+  :executable => ENV['CCLD'].nil? ? FilePathUtils.os_executable_ext('gcc').freeze : ENV['CCLD'].split[0],
   :name => 'default_test_linker'.freeze,
   :stderr_redirect => StdErrRedirect::NONE.freeze,
   :background_exec => BackgroundExec::NONE.freeze,
   :optional => false.freeze,
   :arguments => [
+    ENV['CCLD'].nil? ? "" : ENV['CCLD'].split[1..-1],
+    ENV['CFLAGS'].nil? ? "" : ENV['CFLAGS'].split,
+    ENV['LDFLAGS'].nil? ? "" : ENV['LDFLAGS'].split,
     "\"${1}\"".freeze,
+    "${5}".freeze,
     "-o \"${2}\"".freeze,
     "".freeze,
-    "${4}".freeze
+    "${4}".freeze,
+    ENV['LDLIBS'].nil? ? "" : ENV['LDLIBS'].split
     ].freeze
   }
 
@@ -48,12 +58,14 @@ DEFAULT_TEST_FIXTURE_TOOL = {
   }
 
 DEFAULT_TEST_INCLUDES_PREPROCESSOR_TOOL = {
-  :executable => FilePathUtils.os_executable_ext('gcc').freeze,
+  :executable => ENV['CC'].nil? ? FilePathUtils.os_executable_ext('gcc').freeze : ENV['CC'].split[0],
   :name => 'default_test_includes_preprocessor'.freeze,
   :stderr_redirect => StdErrRedirect::NONE.freeze,
   :background_exec => BackgroundExec::NONE.freeze,
   :optional => false.freeze,
   :arguments => [
+    ENV['CC'].nil? ? "" : ENV['CC'].split[1..-1],
+    ENV['CPPFLAGS'].nil? ? "" : ENV['CPPFLAGS'].split,
     '-E'.freeze, # OSX clang
     '-MM'.freeze,
     '-MG'.freeze,
@@ -65,19 +77,20 @@ DEFAULT_TEST_INCLUDES_PREPROCESSOR_TOOL = {
     {"-D$" => 'COLLECTION_DEFINES_TEST_AND_VENDOR'}.freeze,
     {"-D$" => 'DEFINES_TEST_PREPROCESS'}.freeze,
     "-DGNU_COMPILER".freeze, # OSX clang
-    '-w'.freeze,
     # '-nostdinc'.freeze, # disabled temporarily due to stdio access violations on OSX
     "\"${1}\"".freeze
     ].freeze
   }
 
 DEFAULT_TEST_FILE_PREPROCESSOR_TOOL = {
-  :executable => FilePathUtils.os_executable_ext('gcc').freeze,
+  :executable => ENV['CC'].nil? ? FilePathUtils.os_executable_ext('gcc').freeze : ENV['CC'].split[0],
   :name => 'default_test_file_preprocessor'.freeze,
   :stderr_redirect => StdErrRedirect::NONE.freeze,
   :background_exec => BackgroundExec::NONE.freeze,
   :optional => false.freeze,
   :arguments => [
+    ENV['CC'].nil? ? "" : ENV['CC'].split[1..-1],
+    ENV['CPPFLAGS'].nil? ? "" : ENV['CPPFLAGS'].split,
     '-E'.freeze,
     {"-I\"$\"" => 'COLLECTION_PATHS_TEST_SUPPORT_SOURCE_INCLUDE_VENDOR'}.freeze,
     {"-I\"$\"" => 'COLLECTION_PATHS_TEST_TOOLCHAIN_INCLUDE'}.freeze,
@@ -98,12 +111,14 @@ else
 end
 
 DEFAULT_TEST_DEPENDENCIES_GENERATOR_TOOL = {
-  :executable => FilePathUtils.os_executable_ext('gcc').freeze,
+  :executable => ENV['CC'].nil? ? FilePathUtils.os_executable_ext('gcc').freeze : ENV['CC'].split[0],
   :name => 'default_test_dependencies_generator'.freeze,
   :stderr_redirect => StdErrRedirect::NONE.freeze,
   :background_exec => BackgroundExec::NONE.freeze,
   :optional => false.freeze,
   :arguments => [
+    ENV['CC'].nil? ? "" : ENV['CC'].split[1..-1],
+    ENV['CPPFLAGS'].nil? ? "" : ENV['CPPFLAGS'].split,
     '-E'.freeze,
     {"-I\"$\"" => 'COLLECTION_PATHS_TEST_SUPPORT_SOURCE_INCLUDE_VENDOR'}.freeze,
     {"-I\"$\"" => 'COLLECTION_PATHS_TEST_TOOLCHAIN_INCLUDE'}.freeze,
@@ -121,12 +136,14 @@ DEFAULT_TEST_DEPENDENCIES_GENERATOR_TOOL = {
   }
 
 DEFAULT_RELEASE_DEPENDENCIES_GENERATOR_TOOL = {
-  :executable => FilePathUtils.os_executable_ext('gcc').freeze,
+  :executable => ENV['CC'].nil? ? FilePathUtils.os_executable_ext('gcc').freeze : ENV['CC'].split[0],
   :name => 'default_release_dependencies_generator'.freeze,
   :stderr_redirect => StdErrRedirect::NONE.freeze,
   :background_exec => BackgroundExec::NONE.freeze,
   :optional => false.freeze,
   :arguments => [
+    ENV['CC'].nil? ? "" : ENV['CC'].split[1..-1],
+    ENV['CPPFLAGS'].nil? ? "" : ENV['CPPFLAGS'].split,
     '-E'.freeze,
     {"-I\"$\"" => 'COLLECTION_PATHS_SOURCE_INCLUDE_VENDOR'}.freeze,
     {"-I\"$\"" => 'COLLECTION_PATHS_RELEASE_TOOLCHAIN_INCLUDE'}.freeze,
@@ -145,29 +162,36 @@ DEFAULT_RELEASE_DEPENDENCIES_GENERATOR_TOOL = {
 
 
 DEFAULT_RELEASE_COMPILER_TOOL = {
-  :executable => FilePathUtils.os_executable_ext('gcc').freeze,
+  :executable => ENV['CC'].nil? ? FilePathUtils.os_executable_ext('gcc').freeze : ENV['CC'].split[0],
   :name => 'default_release_compiler'.freeze,
   :stderr_redirect => StdErrRedirect::NONE.freeze,
   :background_exec => BackgroundExec::NONE.freeze,
   :optional => false.freeze,
   :arguments => [
+    ENV['CC'].nil? ? "" : ENV['CC'].split[1..-1],
+    ENV['CPPFLAGS'].nil? ? "" : ENV['CPPFLAGS'].split,
     {"-I\"$\"" => 'COLLECTION_PATHS_SOURCE_INCLUDE_VENDOR'}.freeze,
     {"-I\"$\"" => 'COLLECTION_PATHS_RELEASE_TOOLCHAIN_INCLUDE'}.freeze,
     {"-D$" => 'COLLECTION_DEFINES_RELEASE_AND_VENDOR'}.freeze,
     "-DGNU_COMPILER".freeze,
+    ENV['CFLAGS'].nil? ? "" : ENV['CFLAGS'].split,
     "-c \"${1}\"".freeze,
     "-o \"${2}\"".freeze,
     # gcc's list file output options are complex; no use of ${3} parameter in default config
+    "-MMD".freeze,
+    "-MF \"${4}\"".freeze,
     ].freeze
   }
 
 DEFAULT_RELEASE_ASSEMBLER_TOOL = {
-  :executable => FilePathUtils.os_executable_ext('as').freeze,
+  :executable => ENV['AS'].nil? ? FilePathUtils.os_executable_ext('as').freeze : ENV['AS'].split[0],
   :name => 'default_release_assembler'.freeze,
   :stderr_redirect => StdErrRedirect::NONE.freeze,
   :background_exec => BackgroundExec::NONE.freeze,
   :optional => false.freeze,
   :arguments => [
+    ENV['AS'].nil? ? "" : ENV['AS'].split[1..-1],
+    ENV['ASFLAGS'].nil? ? "" : ENV['ASFLAGS'].split,
     {"-I\"$\"" => 'COLLECTION_PATHS_SOURCE_AND_INCLUDE'}.freeze,
     "\"${1}\"".freeze,
     "-o \"${2}\"".freeze,
@@ -175,16 +199,21 @@ DEFAULT_RELEASE_ASSEMBLER_TOOL = {
   }
 
 DEFAULT_RELEASE_LINKER_TOOL = {
-  :executable => FilePathUtils.os_executable_ext('gcc').freeze,
+  :executable => ENV['CCLD'].nil? ? FilePathUtils.os_executable_ext('gcc').freeze : ENV['CCLD'].split[0],
   :name => 'default_release_linker'.freeze,
   :stderr_redirect => StdErrRedirect::NONE.freeze,
   :background_exec => BackgroundExec::NONE.freeze,
   :optional => false.freeze,
   :arguments => [
+    ENV['CCLD'].nil? ? "" : ENV['CCLD'].split[1..-1],
+    ENV['CFLAGS'].nil? ? "" : ENV['CFLAGS'].split,
+    ENV['LDFLAGS'].nil? ? "" : ENV['LDFLAGS'].split,
     "\"${1}\"".freeze,
+    "${5}".freeze,
     "-o \"${2}\"".freeze,
     "".freeze,
-    "${4}".freeze
+    "${4}".freeze,
+    ENV['LDLIBS'].nil? ? "" : ENV['LDLIBS'].split
     ].freeze
   }
 
@@ -242,6 +271,7 @@ DEFAULT_CEEDLING_CONFIG = {
       :test_threads => 1,
       :use_test_preprocessor => false,
       :use_deep_dependencies => false,
+      :generate_deep_dependencies => true, # only applicable if use_deep_dependencies is true
       :test_file_prefix => 'test_',
       :options_paths => [],
       :release_build => false,
@@ -258,6 +288,7 @@ DEFAULT_CEEDLING_CONFIG = {
       :source => [], # must be populated by user
       :support => [],
       :include => [],
+      :libraries => [],
       :test_toolchain_include => [],
       :release_toolchain_include => [],
     },
@@ -285,6 +316,8 @@ DEFAULT_CEEDLING_CONFIG = {
     },
 
     :libraries => {
+      :flag => '-l${1}',
+      :path_flag => '-L ${1}',
       :test => [],
       :test_preprocess => [],
       :release => [],
@@ -298,6 +331,7 @@ DEFAULT_CEEDLING_CONFIG = {
       :source => '.c',
       :assembly => '.s',
       :object => '.o',
+      :libraries => ['.a','.so'],
       :executable => ( SystemWrapper.windows? ? EXTENSION_WIN_EXE : EXTENSION_NONWIN_EXE ),
       :map => '.map',
       :list => '.lst',
@@ -347,7 +381,7 @@ DEFAULT_CEEDLING_CONFIG = {
     :release_dependencies_generator => { :arguments => [] },
 
     :plugins => {
-      :load_paths => [], #XXX this is injected twice as of now so removed til better handling is found CEEDLING_PLUGINS,
+      :load_paths => CEEDLING_PLUGINS,
       :enabled => [],
     }
   }.freeze
